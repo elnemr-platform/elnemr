@@ -45,7 +45,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px so
 <header><h1>🐯 منصة النمر</h1><p>اختبارات تفاعلية</p><div id="ub" style="margin-top:8px"></div></header>
 <nav id="nav"></nav>
 <div class="wrap"><section id="ex"></section><section id="mg"></section><section id="rs"></section></div>
-<div id="login"><div class="card box"><div style="font-size:3rem">🐯</div><h2 style="margin:0">منصة النمر</h2>
+<div id="login"><div class="card box"><div style="font-size:3rem">🐯</div><h2 style="margin:0">منصة النمر</h2><div id="st" class="tag"></div>
 <input id="nm" placeholder="الاسم (للحساب الجديد فقط)"><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr"><input id="pw" type="password" placeholder="كلمة السر (6 أحرف على الأقل)" dir="ltr">
 <div id="msg"></div><div class="row"><button class="btn" id="lg">دخول</button><button class="btn" id="rg" style="background:var(--brand2)">حساب جديد</button></div></div></div>
 <script>
@@ -75,8 +75,11 @@ function show(id){
 $("#nav").onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
 window.addEventListener("beforeunload",e=>{if(sess&&!sess.sent){e.preventDefault();e.returnValue=""}});
 
+async function getOpen(){const {data}=await sb.from("settings").select("value").eq("key","site_open").maybeSingle();return data?.value===true}
+function closed(){$("#nav").innerHTML="";["ex","mg","rs"].forEach(t=>$("#"+t).classList.toggle("on",t==="ex"));$("#ex").innerHTML=`<div class="card" style="text-align:center"><div style="font-size:3rem">🔒</div><h2>الموقع مغلق حالياً</h2><p class="tag">سيتم فتحه وقت الاختبار.</p><button class="btn" onclick="location.reload()">تحديث</button></div>`}
 /* ===== الطالب: قائمة الاختبارات ===== */
 async function listExams(){
+ if(!isT&&!(await getOpen())){closed();return}
  const el=$("#ex");el.innerHTML="<h2>الاختبارات</h2><p class='tag'>جاري التحميل...</p>";
  const [a,b]=await Promise.all([sb.from("exams").select("*,questions(count)").eq("published",true).order("created_at",{ascending:false}),sb.from("results").select("exam_id,score,total").eq("user_id",me.id).not("exam_id","is",null)]);
  if(a.error){el.innerHTML="<h2>الاختبارات</h2><p>تعذّر التحميل</p>";return}
@@ -118,7 +121,8 @@ $("#ex").onclick=e=>{const t=e.target;
 /* ===== المدرّس: إدارة الاختبارات ===== */
 async function manage(){
  const {data:ex}=await sb.from("exams").select("*,questions(count)").order("created_at",{ascending:false});
- $("#mg").innerHTML=`<h2>إدارة الاختبارات</h2><button class="btn" data-a="new">+ اختبار جديد</button><br><br>`+((ex||[]).map(e=>`<div class="card"><b>${esc(e.title)}</b> <span class="tag">${esc(e.subject||"")} · ${e.questions?.[0]?.count||0} سؤال · ${e.published?"منشور":"مسودة"}</span><br><br><button class="btn" data-a="edit" data-id="${e.id}">الأسئلة</button> <button class="chip" data-a="pub" data-id="${e.id}" data-v="${e.published}">${e.published?"إخفاء":"نشر"}</button> <button class="chip" data-a="delex" data-id="${e.id}">حذف</button></div>`).join("")||"<p>لا توجد اختبارات بعد.</p>")}
+ const open=await getOpen();
+ $("#mg").innerHTML=`<h2>إدارة الاختبارات</h2><div class="card">الموقع للطلبة: <b>${open?"مفتوح 🟢":"مغلق 🔒"}</b> <button class="btn" data-a="toggle" data-v="${open}">${open?"إغلاق الموقع":"فتح الموقع"}</button></div><button class="btn" data-a="new">+ اختبار جديد</button><br><br>`+((ex||[]).map(e=>`<div class="card"><b>${esc(e.title)}</b> <span class="tag">${esc(e.subject||"")} · ${e.questions?.[0]?.count||0} سؤال · ${e.published?"منشور":"مسودة"}</span><br><br><button class="btn" data-a="edit" data-id="${e.id}">الأسئلة</button> <button class="chip" data-a="pub" data-id="${e.id}" data-v="${e.published}">${e.published?"إخفاء":"نشر"}</button> <button class="chip" data-a="delex" data-id="${e.id}">حذف</button></div>`).join("")||"<p>لا توجد اختبارات بعد.</p>")}
 function newForm(){$("#mg").innerHTML=`<h2>اختبار جديد</h2><div class="card f"><label>عنوان الاختبار</label><input id="xt"><label>المادة</label><input id="xs"><label>المدة بالدقائق (0 = بدون وقت)</label><input id="xm" type="number" min="0" value="0"><div class="ck"><input id="xh" type="checkbox" checked><label for="xh">ترتيب الأسئلة والاختيارات عشوائي</label></div><div class="ck"><input id="xo" type="checkbox" checked><label for="xo">محاولة واحدة فقط لكل طالب</label></div><p id="xe" style="color:var(--bad)"></p><button class="btn" data-a="savex">حفظ ومتابعة لإضافة الأسئلة</button> <button class="chip" data-a="back">إلغاء</button></div>`}
 async function editor(id){
  curEx=id;
@@ -151,6 +155,7 @@ $("#mg").onclick=async e=>{const t=e.target,a=t.dataset.a,id=t.dataset.id;if(!a)
  else if(a==="savex"){const title=$("#xt").value.trim();if(!title){$("#xe").textContent="اكتب العنوان";return}
   const {data,error}=await sb.from("exams").insert({title,subject:$("#xs").value.trim()||null,minutes:Math.max(0,+$("#xm").value||0),shuffle:$("#xh").checked,one_attempt:$("#xo").checked}).select("id").single();
   if(error){$("#xe").textContent=error.message;return}editor(data.id)}
+ else if(a==="toggle"){await sb.from("settings").upsert({key:"site_open",value:t.dataset.v!=="true"});manage()}
  else if(a==="pub"){await sb.from("exams").update({published:t.dataset.v!=="true"}).eq("id",id);manage()}
  else if(a==="delex"){if(confirm("حذف الاختبار وكل أسئلته؟")){await sb.from("exams").delete().eq("id",id);manage()}}
  else if(a==="delq"){if(confirm("حذف السؤال؟")){await sb.from("questions").delete().eq("id",id);editor(curEx)}}};
@@ -184,6 +189,7 @@ async function auth(isNew){const m=$("#msg"),email=$("#em").value.trim(),passwor
 $("#lg").onclick=()=>auth(false);$("#rg").onclick=()=>auth(true);
 $("#pw").onkeydown=e=>{if(e.key==="Enter")auth(false)};
 $("#ub").onclick=async e=>{if(e.target.id==="out"){await sb.auth.signOut();location.reload()}};
+getOpen().then(o=>{$("#st").textContent=o?"":"🔒 الموقع مغلق حالياً ويُفتح وقت الاختبار"});
 sb.auth.getSession().then(({data})=>{if(data.session)enter(data.session.user)});
 </script>
 </body>
