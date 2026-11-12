@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>منصة النمر – الاختبارات</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
 :root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#667085;--brand:#4f46e5;--brand2:#06b6d4;--ok:#16a34a;--bad:#dc2626;--line:#e5e7ef}
@@ -46,8 +47,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px so
 <nav id="nav"></nav>
 <div class="wrap"><section id="ex"></section><section id="mg"></section><section id="rs"></section></div>
 <div id="login"><div class="card box"><div style="font-size:3rem">🐯</div><h2 style="margin:0">منصة النمر</h2><div id="st" class="tag"></div>
-<input id="nm" placeholder="الاسم (للحساب الجديد فقط)"><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr"><input id="pw" type="password" placeholder="كلمة السر (6 أحرف على الأقل)" dir="ltr">
-<div id="msg"></div><div class="row"><button class="btn" id="lg">دخول</button><button class="btn" id="rg" style="background:var(--brand2)">حساب جديد</button></div></div></div>
+<input id="nm" placeholder="الاسم (للحساب الجديد فقط)"><input id="cd" placeholder="كود الفصل (للحساب الجديد فقط)" dir="ltr"><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr"><input id="pw" type="password" placeholder="كلمة السر (6 أحرف على الأقل)" dir="ltr">
+<div id="msg"></div><div class="row"><button class="btn" id="lg">دخول</button><button class="btn" id="rg" style="background:var(--brand2)">حساب جديد</button></div><p><a href="#" id="fp" class="tag">نسيت كلمة السر؟</a></p></div></div>
 <script>
 /* انسخ السطرين من ملفك القديم */
 const SUPABASE_URL="https://ajrnnmiszknzapazqfsn.supabase.co";
@@ -90,104 +91,164 @@ async function listExams(){
 async function start(id){
  const e=exams.find(x=>x.id==id);
  if(e.one_attempt&&!confirm("هذا الاختبار له محاولة واحدة فقط. هل تريد البدء؟"))return;
+ const st=await sb.rpc("start_exam",{p_exam:id});if(st.error){alert(st.error.message);return}
  const {data:qs,error}=await sb.from("questions").select("id,q,options,media_type,media_url").eq("exam_id",id).order("pos").order("id");
  if(error||!qs.length){alert("تعذّر تحميل الأسئلة");return}
  let list=qs.map(q=>({...q,opts:q.options.map((t,i)=>({t,i}))}));
  if(e.shuffle)list=shuffle(list).map(q=>({...q,opts:shuffle(q.opts)}));
- sess={e,list,ans:{},end:e.minutes?Date.now()+e.minutes*60000:0,sent:false};
- renderExam();tick()}
+ const d=st.data;
+ sess={e,list,ans:d.answers||{},sw:d.switches||0,end:e.minutes?Date.now()+(new Date(d.started_at)-new Date(d.now))+e.minutes*60000:0,sent:false};
+ renderExam();tick();if(sess.end&&sess.end<=Date.now())submit(true)}
+let svT;function save(){clearTimeout(svT);svT=setTimeout(()=>{if(sess&&!sess.sent)sb.rpc("save_progress",{p_exam:sess.e.id,p_answers:sess.ans,p_switches:sess.sw})},500)}
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&sess&&!sess.sent){sess.sw++;save();const w=$("#sw");if(w)w.textContent="⚠ خروج من الصفحة: "+sess.sw}});
 function renderExam(){const {e,list}=sess;
- $("#ex").innerHTML=`<div class="sticky"><span>${esc(e.title)}</span><span id="tm"></span></div>`+list.map((q,n)=>`<div class="card"><div class="tag">سؤال ${n+1} من ${list.length}</div><h3>${esc(q.q)}</h3>${media(q)}${q.opts.map(o=>`<button class="opt" data-q="${q.id}" data-i="${o.i}">${esc(o.t)}</button>`).join("")}</div>`).join("")+`<button class="btn" id="sub" style="width:100%;padding:14px">تسليم الاختبار</button>`;
+ $("#ex").innerHTML=`<div class="sticky"><span>${esc(e.title)}</span><span id="sw" class="tag">${sess.sw?"⚠ خروج من الصفحة: "+sess.sw:""}</span><span id="tm"></span></div>`+list.map((q,n)=>`<div class="card"><div class="tag">سؤال ${n+1} من ${list.length}</div><h3>${esc(q.q)}</h3>${media(q)}${q.opts.map(o=>`<button class="opt${sess.ans[q.id]===o.i?" sel":""}" data-q="${q.id}" data-i="${o.i}">${esc(o.t)}</button>`).join("")}</div>`).join("")+`<button class="btn" id="sub" style="width:100%;padding:14px">تسليم الاختبار</button>`;
  window.scrollTo(0,0)}
 function tick(){clearInterval(tmr);if(!sess||!sess.end)return;
  const f=()=>{const s=Math.max(0,Math.round((sess.end-Date.now())/1000)),el=$("#tm");if(el)el.textContent="⏱ "+String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");if(s<=0){clearInterval(tmr);submit(true)}};
  f();tmr=setInterval(f,1000)}
+let last=null;
 async function submit(auto){
  if(!sess||sess.sent)return;
  const un=sess.list.filter(q=>sess.ans[q.id]==null).length;
  if(!auto&&un&&!confirm(`لم تجب على ${un} سؤال. هل تريد التسليم؟`))return;
  sess.sent=true;clearInterval(tmr);
  const {data,error}=await sb.rpc("submit_exam",{p_exam:sess.e.id,p_answers:sess.ans});
- if(error){sess.sent=false;alert("تعذّر التسليم: "+error.message+"\nحاول مرة أخرى.");return}
- const rv={};data.review.forEach(r=>rv[r.id]=r);const p=Math.round(data.score/data.total*100),L=sess.list,A=sess.ans;sess=null;
- $("#ex").innerHTML=`<div class="card" style="text-align:center"><div class="score">${p}%</div><p>${data.score} من ${data.total} ${p>=80?"🎉":p>=50?"👍":"💪"}</p><button class="btn" id="bk">رجوع للاختبارات</button></div>`+L.map((q,n)=>{const r=rv[q.id]||{},ch=A[q.id];return `<div class="card"><div class="tag">سؤال ${n+1}</div><h3>${esc(q.q)}</h3>${media(q)}${q.opts.map(o=>`<div class="opt ${o.i===r.answer?"right":o.i===ch?"wrong":""}">${esc(o.t)}</div>`).join("")}${r.explanation?`<p class="tag">💡 ${esc(r.explanation)}</p>`:""}</div>`}).join("");
+ if(error){sess.sent=false;alert("تعذّر التسليم: "+error.message);return}
+ const rv={};data.review.forEach(r=>rv[r.id]=r);const p=Math.round(data.score/data.total*100),L=sess.list,A=sess.ans;
+ last={t:sess.e.title,p,s:data.score,n:data.total};const pass=p>=sess.e.pass_mark;sess=null;
+ $("#ex").innerHTML=`<div class="card" style="text-align:center"><div class="score">${p}%</div><p>${data.score} من ${data.total} ${pass?"🎉 ناجح":"💪 لم تصل لدرجة النجاح"}</p>${pass?'<button class="btn" id="cert">🎓 شهادة (طباعة / PDF)</button> ':""}<button class="btn" id="bk">رجوع للاختبارات</button></div>`+L.map((q,n)=>{const r=rv[q.id]||{},ch=A[q.id];return `<div class="card"><div class="tag">سؤال ${n+1}</div><h3>${esc(q.q)}</h3>${media(q)}${q.opts.map(o=>`<div class="opt ${o.i===r.answer?"right":o.i===ch?"wrong":""}">${esc(o.t)}</div>`).join("")}${r.explanation?`<p class="tag">💡 ${esc(r.explanation)}</p>`:""}</div>`}).join("");
  window.scrollTo(0,0)}
+function cert(){const w=window.open("","_blank");if(!w)return;
+ w.document.write(`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>شهادة</title><style>body{font-family:Tahoma,Arial,sans-serif;text-align:center;padding:60px;border:12px double #4f46e5;margin:20px}h1{font-size:44px;color:#4f46e5}h2{font-size:30px}</style></head><body><div style="font-size:60px">🐯</div><h1>شهادة نجاح</h1><p>تشهد منصة النمر بأن</p><h2>${esc(myName)}</h2><p>قد اجتاز اختبار</p><h2>${esc(last.t)}</h2><p>بنتيجة ${last.p}% (${last.s} من ${last.n})</p><p>${new Date().toLocaleDateString("ar-EG")}</p></body></html>`);w.document.close();setTimeout(()=>w.print(),400)}
 $("#ex").onclick=e=>{const t=e.target;
  if(t.dataset.start)start(t.dataset.start);
- else if(t.classList.contains("opt")&&t.dataset.q){sess.ans[t.dataset.q]=+t.dataset.i;document.querySelectorAll(`.opt[data-q="${t.dataset.q}"]`).forEach(b=>b.classList.toggle("sel",b===t))}
+ else if(t.classList.contains("opt")&&t.dataset.q&&sess){sess.ans[t.dataset.q]=+t.dataset.i;document.querySelectorAll(`.opt[data-q="${t.dataset.q}"]`).forEach(b=>b.classList.toggle("sel",b===t));save()}
  else if(t.id==="sub")submit(false);
+ else if(t.id==="cert")cert();
  else if(t.id==="bk")listExams()};
 
-/* ===== المدرّس: إدارة الاختبارات ===== */
+/* ===== المدرّس ===== */
+const loc=d=>{if(!d)return"";const t=new Date(d);return new Date(t-t.getTimezoneOffset()*60000).toISOString().slice(0,16)};
+const iso=v=>v?new Date(v).toISOString():null;
 async function manage(){
- const {data:ex}=await sb.from("exams").select("*,questions(count)").order("created_at",{ascending:false});
- const open=await getOpen();
- $("#mg").innerHTML=`<h2>إدارة الاختبارات</h2><div class="card">الموقع للطلبة: <b>${open?"مفتوح 🟢":"مغلق 🔒"}</b> <button class="btn" data-a="toggle" data-v="${open}">${open?"إغلاق الموقع":"فتح الموقع"}</button></div><button class="btn" data-a="new">+ اختبار جديد</button><br><br>`+((ex||[]).map(e=>`<div class="card"><b>${esc(e.title)}</b> <span class="tag">${esc(e.subject||"")} · ${e.questions?.[0]?.count||0} سؤال · ${e.published?"منشور":"مسودة"}</span><br><br><button class="btn" data-a="edit" data-id="${e.id}">الأسئلة</button> <button class="chip" data-a="pub" data-id="${e.id}" data-v="${e.published}">${e.published?"إخفاء":"نشر"}</button> <button class="chip" data-a="delex" data-id="${e.id}">حذف</button></div>`).join("")||"<p>لا توجد اختبارات بعد.</p>")}
-function newForm(){$("#mg").innerHTML=`<h2>اختبار جديد</h2><div class="card f"><label>عنوان الاختبار</label><input id="xt"><label>المادة</label><input id="xs"><label>المدة بالدقائق (0 = بدون وقت)</label><input id="xm" type="number" min="0" value="0"><div class="ck"><input id="xh" type="checkbox" checked><label for="xh">ترتيب الأسئلة والاختيارات عشوائي</label></div><div class="ck"><input id="xo" type="checkbox" checked><label for="xo">محاولة واحدة فقط لكل طالب</label></div><p id="xe" style="color:var(--bad)"></p><button class="btn" data-a="savex">حفظ ومتابعة لإضافة الأسئلة</button> <button class="chip" data-a="back">إلغاء</button></div>`}
+ const [a,open]=await Promise.all([sb.from("exams").select("*,questions(count)").order("created_at",{ascending:false}),getOpen()]);
+ $("#mg").innerHTML=`<h2>إدارة الاختبارات</h2><div class="card">الموقع للطلبة: <b>${open?"مفتوح 🟢":"مغلق 🔒"}</b> <button class="btn" data-a="toggle" data-v="${open}">${open?"إغلاق الموقع":"فتح الموقع"}</button></div><button class="btn" data-a="new">+ اختبار جديد</button> <button class="chip" data-a="cls">👥 الفصول وأكواد التسجيل</button><br><br>`+((a.data||[]).map(e=>`<div class="card"><b>${esc(e.title)}</b> <span class="tag">${esc(e.subject||"")} · ${e.questions?.[0]?.count||0} سؤال · ${e.published?"منشور":"مسودة"}${e.opens_at?" · يفتح "+new Date(e.opens_at).toLocaleString("ar-EG"):""}${e.closes_at?" · يقفل "+new Date(e.closes_at).toLocaleString("ar-EG"):""}</span><br><br><button class="btn" data-a="edit" data-id="${e.id}">الأسئلة</button> <button class="chip" data-a="setx" data-id="${e.id}">الإعدادات</button> <button class="chip" data-a="ana" data-id="${e.id}">تحليل</button> <button class="chip" data-a="pub" data-id="${e.id}" data-v="${e.published}">${e.published?"إخفاء":"نشر"}</button> <button class="chip" data-a="delex" data-id="${e.id}">حذف</button></div>`).join("")||"<p>لا توجد اختبارات بعد.</p>")}
+async function examForm(id){
+ const [c,x]=await Promise.all([sb.from("classes").select("id,name").order("name"),id?sb.from("exams").select("*").eq("id",id).single():Promise.resolve({data:{shuffle:true,one_attempt:true,minutes:0,pass_mark:50}})]);
+ const e=x.data;curEx=id||null;
+ $("#mg").innerHTML=`<h2>${id?"إعدادات الاختبار":"اختبار جديد"}</h2><div class="card f"><label>العنوان</label><input id="xt" value="${esc(e.title)}"><label>المادة</label><input id="xs" value="${esc(e.subject)}"><label>المدة بالدقائق (0 = بدون وقت)</label><input id="xm" type="number" min="0" value="${e.minutes}"><label>درجة النجاح %</label><input id="xp" type="number" min="0" max="100" value="${e.pass_mark}"><label>الفصل</label><select id="xc"><option value="">كل الفصول</option>${(c.data||[]).map(k=>`<option value="${k.id}" ${k.id===e.class_id?"selected":""}>${esc(k.name)}</option>`).join("")}</select><label>يفتح في (اختياري)</label><input id="xo1" type="datetime-local" value="${loc(e.opens_at)}"><label>يقفل في (اختياري)</label><input id="xo2" type="datetime-local" value="${loc(e.closes_at)}"><div class="ck"><input id="xh" type="checkbox" ${e.shuffle?"checked":""}><label for="xh">ترتيب عشوائي للأسئلة والاختيارات</label></div><div class="ck"><input id="xo" type="checkbox" ${e.one_attempt?"checked":""}><label for="xo">محاولة واحدة فقط</label></div><p id="xe" style="color:var(--bad)"></p><button class="btn" data-a="savex">حفظ</button> <button class="chip" data-a="back">إلغاء</button></div>`}
+async function saveExam(){
+ const title=$("#xt").value.trim();if(!title){$("#xe").textContent="اكتب العنوان";return}
+ const row={title,subject:$("#xs").value.trim()||null,minutes:Math.max(0,+$("#xm").value||0),pass_mark:Math.min(100,Math.max(0,+$("#xp").value||50)),class_id:$("#xc").value||null,opens_at:iso($("#xo1").value),closes_at:iso($("#xo2").value),shuffle:$("#xh").checked,one_attempt:$("#xo").checked};
+ const r=curEx?await sb.from("exams").update(row).eq("id",curEx).select("id").single():await sb.from("exams").insert(row).select("id").single();
+ if(r.error){$("#xe").textContent=r.error.message;return}curEx?manage():editor(r.data.id)}
+async function classes(){
+ const {data}=await sb.from("classes").select("*").order("name");
+ $("#mg").innerHTML=`<h2>الفصول</h2><button class="chip" data-a="back">⬅ رجوع</button><div class="card f"><p class="tag">الطالب لازم يكتب كود فصله عند التسجيل. اعمل فصلاً واحداً على الأقل قبل ما تبعت الرابط للطلبة.</p><label>اسم فصل جديد</label><input id="cn"><button class="btn" data-a="addc">إضافة</button></div>`+(data||[]).map(c=>`<div class="card"><b>${esc(c.name)}</b> — كود التسجيل: <b dir="ltr">${esc(c.code)}</b> <button class="chip" data-a="delc" data-id="${c.id}">حذف</button></div>`).join("")}
+async function analyze(id){
+ const [q,k,at]=await Promise.all([sb.from("questions").select("id,q").eq("exam_id",id).order("pos").order("id"),sb.from("answer_keys").select("question_id,answer"),sb.from("attempts").select("answers").eq("exam_id",id).eq("submitted",true)]);
+ const key={};(k.data||[]).forEach(x=>key[x.question_id]=x.answer);const n=(at.data||[]).length;
+ const rows=(q.data||[]).map(x=>({q:x.q,p:n?Math.round((at.data||[]).filter(a=>a.answers[x.id]===key[x.id]).length/n*100):0})).sort((a,b)=>a.p-b.p);
+ $("#mg").innerHTML=`<h2>تحليل الأسئلة</h2><button class="chip" data-a="back">⬅ رجوع</button><p class="tag">عدد الطلبة اللي سلّموا: ${n}. الأسئلة مرتبة من الأصعب للأسهل.</p><div class="card scroll"><table><tr><th>السؤال</th><th>نسبة الإجابة الصحيحة</th></tr>${rows.map(r=>`<tr><td>${esc(r.q)}</td><td>${r.p}%</td></tr>`).join("")||"<tr><td colspan=2>لا توجد بيانات</td></tr>"}</table></div>`}
+let QS=[],eqid=null;
 async function editor(id){
- curEx=id;
- const [a,b]=await Promise.all([sb.from("exams").select("title").eq("id",id).single(),sb.from("questions").select("id,q,options,media_type,answer_keys(answer)").eq("exam_id",id).order("pos").order("id")]);
- const qs=b.data||[];nQ=qs.length;
- $("#mg").innerHTML=`<h2>${esc(a.data?.title||"")}</h2><button class="chip" data-a="back">⬅ رجوع</button><br><br>`+qs.map((q,n)=>{const k=Array.isArray(q.answer_keys)?q.answer_keys[0]:q.answer_keys;return `<div class="card"><b>${n+1}. ${esc(q.q)}</b>${q.media_type?` <span class="tag">(${q.media_type==="youtube"?"فيديو":q.media_type==="video"?"فيديو":"صورة"})</span>`:""}<div class="tag">${q.options.map((o,i)=>(i===k?.answer?"✔ ":"")+esc(o)).join(" | ")}</div><button class="chip" data-a="delq" data-id="${q.id}">حذف السؤال</button></div>`}).join("")+
- `<div class="card f"><h3>إضافة سؤال</h3><label>نص السؤال</label><textarea id="fq" rows="2"></textarea><label>الاختيارات (كل اختيار في سطر، من 2 إلى 6)</label><textarea id="fo" rows="4"></textarea><label>الإجابة الصحيحة</label><select id="fa"></select><label>شرح الإجابة (اختياري)</label><input id="fe"><label>وسائط (اختياري)</label><select id="fm"><option value="none">بدون</option><option value="image_up">رفع صورة</option><option value="video_up">رفع فيديو قصير (حتى 10 ميجا)</option><option value="image">رابط صورة</option><option value="youtube">رابط يوتيوب</option></select><input id="ff" type="file" style="display:none"><input id="fu" placeholder="https://..." dir="ltr" style="display:none"><p id="fx" style="color:var(--bad)"></p><button class="btn" data-a="addq">إضافة السؤال</button></div>`;
+ curEx=id;eqid=null;
+ const [a,b]=await Promise.all([sb.from("exams").select("title").eq("id",id).single(),sb.from("questions").select("id,q,options,media_type,media_url,answer_keys(answer,explanation)").eq("exam_id",id).order("pos").order("id")]);
+ QS=(b.data||[]).map(q=>({...q,k:Array.isArray(q.answer_keys)?q.answer_keys[0]:q.answer_keys}));nQ=QS.length;
+ $("#mg").innerHTML=`<h2>${esc(a.data?.title||"")}</h2><button class="chip" data-a="back">⬅ رجوع</button><br><br>`+QS.map((q,n)=>`<div class="card"><b>${n+1}. ${esc(q.q)}</b>${q.media_type?` <span class="tag">(${q.media_type==="image"?"صورة":"فيديو"})</span>`:""}<div class="tag">${q.options.map((o,i)=>(i===q.k?.answer?"✔ ":"")+esc(o)).join(" | ")}</div><button class="chip" data-a="eq" data-id="${q.id}">تعديل</button> <button class="chip" data-a="delq" data-id="${q.id}">حذف</button></div>`).join("")+
+ `<div class="card f" id="qf"><h3 id="qh">إضافة سؤال</h3><label>نص السؤال</label><textarea id="fq" rows="2"></textarea><label>الاختيارات (كل اختيار في سطر، من 2 إلى 6)</label><textarea id="fo" rows="4"></textarea><label>الإجابة الصحيحة</label><select id="fa"></select><label>شرح الإجابة (اختياري)</label><input id="fe"><label>وسائط (اختياري)</label><select id="fm"><option value="none">بدون</option><option value="image_up">رفع صورة</option><option value="video_up">رفع فيديو قصير (حتى 10 ميجا)</option><option value="image">رابط صورة</option><option value="youtube">رابط يوتيوب</option></select><input id="ff" type="file" style="display:none"><input id="fu" placeholder="https://..." dir="ltr" style="display:none"><p id="fx" style="color:var(--bad)"></p><button class="btn" data-a="addq" id="fs">إضافة السؤال</button></div>
+ <div class="card f"><h3>استيراد أسئلة من Excel أو CSV</h3><p class="tag">الصف الأول عناوين. الأعمدة بالترتيب: السؤال | اختيار 1 | اختيار 2 | اختيار 3 | اختيار 4 | الإجابة الصحيحة (رقم 1-4 أو نص الاختيار) | الشرح | رابط صورة أو يوتيوب. اترك خانات الاختيارات الزيادة فاضية بدون فجوات.</p><input id="if" type="file" accept=".xlsx,.xls,.csv"><p id="ix" style="color:var(--bad)"></p><button class="btn" data-a="imp">استيراد</button></div>`;
  $("#fo").oninput=()=>{const l=$("#fo").value.split("\n").map(s=>s.trim()).filter(Boolean);$("#fa").innerHTML=l.map((t,i)=>`<option value="${i}">${i+1}. ${esc(t.slice(0,40))}</option>`).join("")};
  $("#fm").onchange=()=>{const v=$("#fm").value,f=$("#ff"),u=$("#fu");f.style.display=v.endsWith("_up")?"block":"none";u.style.display=(v==="image"||v==="youtube")?"block":"none";f.accept=v==="image_up"?"image/*":"video/*"}}
+function editQ(id){
+ const q=QS.find(x=>x.id==id);eqid=q.id;
+ $("#fq").value=q.q;$("#fo").value=q.options.join("\n");$("#fo").oninput();$("#fa").value=q.k?.answer??0;$("#fe").value=q.k?.explanation||"";
+ $("#fm").insertAdjacentHTML("afterbegin",'<option value="keep">إبقاء الوسائط الحالية</option>');$("#fm").value="keep";$("#fm").onchange();
+ $("#qh").textContent="تعديل السؤال";$("#fs").textContent="حفظ التعديل";$("#qf").scrollIntoView({behavior:"smooth"})}
 async function addQ(){
- const x=$("#fx"),q=$("#fq").value.trim(),opts=$("#fo").value.split("\n").map(s=>s.trim()).filter(Boolean),ans=+$("#fa").value,mt=$("#fm").value;x.textContent="";
+ const x=$("#fx"),q=$("#fq").value.trim(),opts=$("#fo").value.split("\n").map(s=>s.trim()).filter(Boolean),ans=+$("#fa").value,mt=$("#fm").value,ex=$("#fe").value.trim()||null;x.textContent="";
  if(!q||opts.length<2||opts.length>6){x.textContent="اكتب السؤال ومن 2 إلى 6 اختيارات";return}
  let url=null,type=null;
- if(mt.endsWith("_up")){const f=$("#ff").files[0];if(!f){x.textContent="اختر ملفاً";return}if(f.size>10*1048576){x.textContent="الملف أكبر من 10 ميجا";return}
+ if(mt==="keep"){}
+ else if(mt.endsWith("_up")){const f=$("#ff").files[0];if(!f){x.textContent="اختر ملفاً";return}if(f.size>10*1048576){x.textContent="الملف أكبر من 10 ميجا";return}
   x.style.color="var(--muted)";x.textContent="جاري رفع الملف...";
   const path=`${curEx}/${Date.now()}-${f.name.replace(/[^\w.]/g,"_")}`,up=await sb.storage.from("media").upload(path,f);x.style.color="var(--bad)";
   if(up.error){x.textContent="تعذّر الرفع: "+up.error.message;return}
   url=sb.storage.from("media").getPublicUrl(path).data.publicUrl;type=mt==="image_up"?"image":"video"}
  else if(mt!=="none"){url=$("#fu").value.trim();type=mt;if(!url||(mt==="youtube"&&!ytId(url))){x.textContent="الرابط غير صحيح";return}}
+ if(eqid){const u={q,options:opts};if(mt!=="keep"){u.media_type=type;u.media_url=url}
+  let r=await sb.from("questions").update(u).eq("id",eqid);if(!r.error)r=await sb.from("answer_keys").upsert({question_id:eqid,answer:ans,explanation:ex});
+  if(r.error){x.textContent=r.error.message;return}return editor(curEx)}
  const r=await sb.from("questions").insert({exam_id:curEx,pos:nQ,q,options:opts,media_type:type,media_url:url}).select("id").single();
  if(r.error){x.textContent=r.error.message;return}
- const k=await sb.from("answer_keys").insert({question_id:r.data.id,answer:ans,explanation:$("#fe").value.trim()||null});
+ const k=await sb.from("answer_keys").insert({question_id:r.data.id,answer:ans,explanation:ex});
  if(k.error){await sb.from("questions").delete().eq("id",r.data.id);x.textContent=k.error.message;return}
  editor(curEx)}
+async function imp(){
+ const x=$("#ix"),f=$("#if").files[0];x.textContent="";if(!f){x.textContent="اختر ملف Excel أو CSV";return}
+ let rows;try{const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:""})}catch(e){x.textContent="تعذّر قراءة الملف";return}
+ const qs=[],ks=[];let bad=0;
+ rows.slice(1).forEach(r=>{const q=String(r[0]).trim(),o=[1,2,3,4].map(i=>String(r[i]).trim()).filter(Boolean);if(!q&&!o.length)return;
+  const a=String(r[5]).trim(),ai=/^\d+$/.test(a)?+a-1:o.findIndex(t=>t===a);
+  if(!q||o.length<2||ai<0||ai>=o.length){bad++;return}
+  const m=String(r[7]).trim();qs.push({exam_id:curEx,pos:nQ+qs.length,q,options:o,media_type:m?(ytId(m)?"youtube":"image"):null,media_url:m||null});ks.push({answer:ai,explanation:String(r[6]).trim()||null})});
+ if(!qs.length){x.textContent="لم أجد أسئلة صالحة في الملف";return}
+ const ins=await sb.from("questions").insert(qs).select("id,pos");if(ins.error){x.textContent=ins.error.message;return}
+ const d=ins.data.sort((a,b)=>a.pos-b.pos),k=await sb.from("answer_keys").insert(d.map((q,i)=>({question_id:q.id,...ks[i]})));
+ if(k.error){await sb.from("questions").delete().in("id",d.map(q=>q.id));x.textContent=k.error.message;return}
+ alert(`تم استيراد ${qs.length} سؤال${bad?` وتخطي ${bad} صف غير صالح`:""}`);editor(curEx)}
 $("#mg").onclick=async e=>{const t=e.target,a=t.dataset.a,id=t.dataset.id;if(!a)return;
- if(a==="new")newForm();
+ if(a==="new")examForm();
+ else if(a==="setx")examForm(id);
+ else if(a==="savex")saveExam();
  else if(a==="back")manage();
  else if(a==="edit")editor(id);
  else if(a==="addq")addQ();
- else if(a==="savex"){const title=$("#xt").value.trim();if(!title){$("#xe").textContent="اكتب العنوان";return}
-  const {data,error}=await sb.from("exams").insert({title,subject:$("#xs").value.trim()||null,minutes:Math.max(0,+$("#xm").value||0),shuffle:$("#xh").checked,one_attempt:$("#xo").checked}).select("id").single();
-  if(error){$("#xe").textContent=error.message;return}editor(data.id)}
+ else if(a==="eq")editQ(id);
+ else if(a==="imp")imp();
+ else if(a==="ana")analyze(id);
+ else if(a==="cls")classes();
+ else if(a==="addc"){const n=$("#cn").value.trim();if(!n)return;const r=await sb.from("classes").insert({name:n,code:Math.random().toString(36).slice(2,8).toUpperCase()});if(r.error)alert(r.error.message);classes()}
+ else if(a==="delc"){if(confirm("حذف الفصل؟")){await sb.from("classes").delete().eq("id",id);classes()}}
  else if(a==="toggle"){await sb.from("settings").upsert({key:"site_open",value:t.dataset.v!=="true"});manage()}
  else if(a==="pub"){await sb.from("exams").update({published:t.dataset.v!=="true"}).eq("id",id);manage()}
  else if(a==="delex"){if(confirm("حذف الاختبار وكل أسئلته؟")){await sb.from("exams").delete().eq("id",id);manage()}}
  else if(a==="delq"){if(confirm("حذف السؤال؟")){await sb.from("questions").delete().eq("id",id);editor(curEx)}}};
 
-/* ===== المدرّس: النتائج ===== */
 async function results(){
  $("#rs").innerHTML="<h2>نتائج الطلبة</h2><p class='tag'>جاري التحميل...</p>";
- const [a,b]=await Promise.all([sb.from("results").select("user_id,subject,score,total,created_at").order("created_at",{ascending:false}).limit(1000),sb.from("profiles").select("id,name")]);
+ const [a,b]=await Promise.all([sb.from("results").select("user_id,exam_id,subject,score,total,switches,created_at").order("created_at",{ascending:false}).limit(1000),sb.from("profiles").select("id,name")]);
  if(a.error){$("#rs").innerHTML="<h2>نتائج الطلبة</h2><p>تعذّر التحميل</p>";return}
  const nm={};(b.data||[]).forEach(p=>nm[p.id]=p.name);
- const rows=(a.data||[]).map(r=>({n:nm[r.user_id]||"-",s:r.subject,p:Math.round(r.score/r.total*100),d:new Date(r.created_at).toLocaleDateString("ar-EG")}));
+ const rows=(a.data||[]).map(r=>({u:r.user_id,x:r.exam_id,n:nm[r.user_id]||"-",s:r.subject,p:Math.round(r.score/r.total*100),w:r.switches,d:new Date(r.created_at).toLocaleDateString("ar-EG")}));
  const subs=[...new Set(rows.map(r=>r.s))];
- const draw=()=>{const f=$("#rf").value,v=rows.filter(r=>!f||r.s===f);$("#rt").innerHTML="<tr><th>الطالب</th><th>الاختبار</th><th>النتيجة</th><th>التاريخ</th></tr>"+(v.map(r=>`<tr><td>${esc(r.n)}</td><td>${esc(r.s)}</td><td>${r.p}%</td><td>${r.d}</td></tr>`).join("")||"<tr><td colspan=4>لا توجد نتائج</td></tr>");$("#rt").dataset.csv="الطالب,الاختبار,النتيجة,التاريخ\n"+v.map(r=>[r.n,r.s,r.p+"%",r.d].map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join("\n")};
+ const draw=()=>{const f=$("#rf").value,v=rows.filter(r=>!f||r.s===f);$("#rt").innerHTML="<tr><th>الطالب</th><th>الاختبار</th><th>النتيجة</th><th>خروج من الصفحة</th><th>التاريخ</th><th></th></tr>"+(v.map(r=>`<tr><td>${esc(r.n)}</td><td>${esc(r.s)}</td><td>${r.p}%</td><td>${r.w}</td><td>${r.d}</td><td>${r.x?`<button class="chip" data-u="${r.u}" data-x="${r.x}">إعادة محاولة</button>`:""}</td></tr>`).join("")||"<tr><td colspan=6>لا توجد نتائج</td></tr>");$("#rt").dataset.csv="الطالب,الاختبار,النتيجة,خروج من الصفحة,التاريخ\n"+v.map(r=>[r.n,r.s,r.p+"%",r.w,r.d].map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join("\n")};
  $("#rs").innerHTML=`<h2>نتائج الطلبة</h2><div class="card"><select id="rf" class="chip"><option value="">كل الاختبارات</option>${subs.map(s=>`<option>${esc(s)}</option>`).join("")}</select> <button class="chip" id="csv">تحميل Excel (CSV)</button></div><div class="card scroll"><table id="rt"></table></div>`;
  $("#rf").onchange=draw;draw();
- $("#csv").onclick=()=>{const l=document.createElement("a");l.href=URL.createObjectURL(new Blob(["\ufeff"+$("#rt").dataset.csv],{type:"text/csv;charset=utf-8"}));l.download="results.csv";l.click()}}
+ $("#csv").onclick=()=>{const l=document.createElement("a");l.href=URL.createObjectURL(new Blob(["\ufeff"+$("#rt").dataset.csv],{type:"text/csv;charset=utf-8"}));l.download="results.csv";l.click()};
+ $("#rt").onclick=async e=>{const u=e.target.dataset.u;if(!u||!confirm("حذف نتيجة هذا الطالب وإعطاءه محاولة جديدة؟"))return;const x=e.target.dataset.x;
+  await sb.from("results").delete().eq("user_id",u).eq("exam_id",x);await sb.from("attempts").delete().eq("user_id",u).eq("exam_id",x);results()}}
 
 /* ===== الحسابات ===== */
+let myName="";
 async function enter(user){me=user;
  const {data:p}=await sb.from("profiles").select("name,role").eq("id",user.id).maybeSingle();
- isT=p?.role==="teacher";$("#login").style.display="none";
+ isT=p?.role==="teacher";myName=p?.name||"";$("#login").style.display="none";
  $("#ub").innerHTML=`أهلاً يا ${esc(p?.name||"طالب")} 👋 <button class="chip" id="out">خروج</button>`;buildNav();show("ex")}
-async function auth(isNew){const m=$("#msg"),email=$("#em").value.trim(),password=$("#pw").value,name=$("#nm").value.trim();m.textContent="";
+async function auth(isNew){const m=$("#msg"),email=$("#em").value.trim(),password=$("#pw").value,name=$("#nm").value.trim(),code=$("#cd").value.trim().toUpperCase();m.textContent="";
  if(!email||password.length<6){m.textContent="اكتب بريداً صحيحاً وكلمة سر 6 أحرف على الأقل";return}
- if(isNew){if(!name){m.textContent="اكتب اسمك";return}
-  const {data,error}=await sb.auth.signUp({email,password,options:{data:{name}}});
-  if(error){m.textContent=error.message;return}
+ if(isNew){if(!name||!code){m.textContent="اكتب اسمك وكود الفصل";return}
+  const {data,error}=await sb.auth.signUp({email,password,options:{data:{name,code}}});
+  if(error){m.textContent=/database/i.test(error.message)?"كود الفصل غير صحيح":error.message;return}
   if(data.session)enter(data.user);else m.textContent="تم إنشاء الحساب، افتح بريدك لتأكيده ثم سجّل دخول"}
  else{const {data,error}=await sb.auth.signInWithPassword({email,password});
   if(error){m.textContent="البريد أو كلمة السر غير صحيحة";return}enter(data.user)}}
 $("#lg").onclick=()=>auth(false);$("#rg").onclick=()=>auth(true);
 $("#pw").onkeydown=e=>{if(e.key==="Enter")auth(false)};
+$("#fp").onclick=async e=>{e.preventDefault();const em=$("#em").value.trim()||prompt("اكتب بريدك الإلكتروني");if(!em)return;
+ const {error}=await sb.auth.resetPasswordForEmail(em,{redirectTo:location.origin+location.pathname});$("#msg").textContent=error?error.message:"تم إرسال رابط تغيير كلمة السر لبريدك"};
+sb.auth.onAuthStateChange(ev=>{if(ev==="PASSWORD_RECOVERY")setTimeout(async()=>{const p=prompt("اكتب كلمة السر الجديدة (6 أحرف على الأقل)");if(p&&p.length>=6){const r=await sb.auth.updateUser({password:p});alert(r.error?r.error.message:"تم تغيير كلمة السر")}},300)});
 $("#ub").onclick=async e=>{if(e.target.id==="out"){await sb.auth.signOut();location.reload()}};
 getOpen().then(o=>{$("#st").textContent=o?"":"🔒 الموقع مغلق حالياً ويُفتح وقت الاختبار"});
 sb.auth.getSession().then(({data})=>{if(data.session)enter(data.session.user)});
