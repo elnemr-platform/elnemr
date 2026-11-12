@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>منصة النمر</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#1d2433;--muted:#667085;--brand:#4f46e5;--brand2:#06b6d4;--ok:#16a34a;--bad:#dc2626;--line:#e5e7ef}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c30;--text:#eef0f8;--muted:#98a0b8;--brand:#818cf8;--brand2:#22d3ee;--line:#2a3050}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Cairo',Tahoma,Arial,sans-serif;line-height:1.8}
+.wrap{max-width:900px;margin:auto;padding:0 16px 40px}
+header{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;padding:36px 16px 56px;text-align:center}
+header h1{margin:0 0 6px;font-size:clamp(1.6rem,5vw,2.4rem);font-weight:800}header p{margin:0}
+nav{display:flex;gap:8px;overflow-x:auto;margin:-28px auto 20px;max-width:900px;padding:0 16px}
+nav button{flex:1;min-width:110px;border:0;border-radius:14px;padding:12px;background:var(--card);color:var(--text);font:600 1rem 'Cairo',Tahoma,sans-serif;cursor:pointer;box-shadow:0 4px 14px #0002}
+nav button.on{background:var(--brand);color:#fff}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+h2{margin:8px 0 14px}details summary{cursor:pointer;font-weight:600}details p{color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.thumb{aspect-ratio:16/9;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand2));display:grid;place-items:center;color:#fff;font-size:2.4rem;margin-bottom:8px}
+.btn{display:inline-block;border:0;border-radius:10px;padding:8px 16px;background:var(--brand);color:#fff;font:600 .95rem 'Cairo',Tahoma,sans-serif;text-decoration:none;cursor:pointer}
+.btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
+.tag{font-size:.8rem;color:var(--muted)}
+.opt{display:block;width:100%;text-align:right;margin:8px 0;padding:12px;border:2px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);font:inherit;cursor:pointer}
+.opt.right{border-color:var(--ok);background:#16a34a22}.opt.wrong{border-color:var(--bad);background:#dc262622}
+.bar{height:8px;background:var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}.bar i{display:block;height:100%;background:var(--brand);transition:width .3s}
+.chip{padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;cursor:pointer}
+.score{font-size:2.4rem;font-weight:800;text-align:center;color:var(--brand)}
+table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid var(--line);text-align:right}
+.scroll{overflow-x:auto}
+#login{position:fixed;inset:0;z-index:100;background:var(--bg);display:grid;place-items:center;padding:16px}
+#login .box{width:100%;max-width:380px;text-align:center}
+#login input{width:100%;padding:12px;margin:6px 0;border:2px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);font:inherit;text-align:center}
+#login .row{display:flex;gap:8px;margin-top:8px}#login .row .btn{flex:1;padding:12px}
+#msg{color:var(--bad);min-height:1.6em;font-size:.9rem}
+footer{text-align:center;color:var(--muted);font-size:.85rem;margin-top:24px}
+</style>
+</head>
+<body>
+<header><h1>🐯 منصة النمر</h1><p>شرح مبسط، فيديوهات، ملفات واختبارات تفاعلية</p><div id="ub" style="margin-top:8px"></div></header>
+<nav id="nav"></nav>
+<div class="wrap">
+<section id="lessons"></section><section id="videos"></section><section id="files"></section><section id="quiz"></section><section id="dash"></section>
+<footer>منصة النمر 🐯</footer>
+</div>
+<div id="login"><div class="card box"><div style="font-size:3rem">🐯</div><h2 style="margin:0">منصة النمر</h2>
+<input id="nm" placeholder="الاسم (للحساب الجديد فقط)"><input id="em" type="email" placeholder="البريد الإلكتروني" dir="ltr"><input id="pw" type="password" placeholder="كلمة السر (6 أحرف على الأقل)" dir="ltr">
+<div id="msg"></div><div class="row"><button class="btn" id="lg">دخول</button><button class="btn" id="rg" style="background:var(--brand2)">حساب جديد</button></div></div></div>
+<script>
+/* ===== 1) ضع بيانات مشروعك من Supabase > Project Settings > API ===== */
+const SUPABASE_URL="https://ajrnnmiszknzapazqfsn.supabase.co/rest/v1/";
+const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqcm5ubWlzemtuemFwYXpxZnNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MzI3NTIsImV4cCI6MjExMDAwODc1Mn0.7EvUzg0wooM1bfm-u_l925hhO6TkEuXvcVqv5XooLuM";
+
+/* ===== 2) عدّل المحتوى من هنا ===== */
+const DATA={
+lessons:[
+ {subject:"الرياضيات",title:"الكسور العادية",body:"الكسر يعبّر عن جزء من كل. البسط هو عدد الأجزاء المأخوذة، والمقام هو عدد الأجزاء الكلي."},
+ {subject:"الرياضيات",title:"مساحة المستطيل",body:"مساحة المستطيل = الطول × العرض."},
+ {subject:"العلوم",title:"دورة الماء في الطبيعة",body:"يتبخر الماء بفعل الشمس، ثم يتكثف في السحب، ثم يسقط مطراً."},
+ {subject:"اللغة العربية",title:"الجملة الاسمية",body:"تبدأ باسم وتتكون من مبتدأ وخبر، مثل: العلمُ نورٌ."}
+],
+videos:[{title:"شرح الكسور",subject:"الرياضيات",url:""},{title:"دورة الماء",subject:"العلوم",url:""}],
+files:[{title:"ملخص الكسور (PDF)",type:"PDF",url:""}],
+quizzes:{
+ "الرياضيات":[
+  {q:"ما ناتج 1/4 + 2/4؟",o:["3/8","3/4","2/4","1/2"],a:1,e:"المقام واحد، نجمع البسطين: 3/4."},
+  {q:"مساحة مستطيل طوله 6 وعرضه 4؟",o:["10","20","24","48"],a:2,e:"6 × 4 = 24."}],
+ "العلوم":[
+  {q:"ما مصدر الطاقة الذي يسبب تبخر الماء؟",o:["القمر","الرياح","الشمس","الجبال"],a:2,e:"حرارة الشمس."},
+  {q:"تحول بخار الماء إلى قطرات يسمى؟",o:["تبخر","تكثف","انصهار","تجمد"],a:1,e:"التكثف."}],
+ "اللغة العربية":[
+  {q:"أي مما يلي جملة اسمية؟",o:["ذهب الولد","الولدُ مجتهدٌ","يكتب أحمد","قرأتُ الكتاب"],a:1,e:"تبدأ باسم."}]
+}};
+/* ================================== */
+const $=s=>document.querySelector(s);
+const esc=s=>{const d=document.createElement("div");d.textContent=s??"";return d.innerHTML};
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+let me=null,isTeacher=false,best={};
+const tabs=[["lessons","📖 الدروس"],["videos","🎬 الفيديوهات"],["files","📁 الملفات"],["quiz","✅ الاختبارات"]];
+function buildNav(){const t=isTeacher?[...tabs,["dash","📊 لوحة المدرّس"]]:tabs;$("#nav").innerHTML=t.map(x=>`<button data-t="${x[0]}">${x[1]}</button>`).join("")}
+function show(id){["lessons","videos","files","quiz","dash"].forEach(t=>$("#"+t).classList.toggle("on",t===id));document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===id));if(id==="dash")dash()}
+$("#nav").onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
+const subjects=[...new Set(DATA.lessons.map(l=>l.subject))];
+$("#lessons").innerHTML="<h2>الدروس</h2>"+subjects.map(s=>`<div class="card"><b>${esc(s)}</b>`+DATA.lessons.filter(l=>l.subject===s).map(l=>`<details><summary>${esc(l.title)}</summary><p>${esc(l.body)}</p></details>`).join("")+"</div>").join("");
+$("#videos").innerHTML="<h2>الفيديوهات</h2><div class='grid'>"+DATA.videos.map(v=>`<div class="card"><div class="thumb">▶</div><b>${esc(v.title)}</b><div class="tag">${esc(v.subject)}</div><br><a class="btn" target="_blank" rel="noopener" ${v.url?`href="${esc(v.url)}"`:'aria-disabled="true"'}>${v.url?"شاهد الآن":"قريباً"}</a></div>`).join("")+"</div>";
+$("#files").innerHTML="<h2>الملفات والبيانات</h2>"+DATA.files.map(f=>`<div class="card" style="display:flex;justify-content:space-between;align-items:center"><div><b>${esc(f.title)}</b><div class="tag">${esc(f.type)}</div></div><a class="btn" target="_blank" rel="noopener" ${f.url?`href="${esc(f.url)}"`:'aria-disabled="true"'}>${f.url?"تحميل":"قريباً"}</a></div>`).join("");
+
+/* الاختبارات */
+let cur=null,i=0,score=0,locked=false;
+async function loadBest(){best={};const {data}=await sb.from("results").select("subject,score,total").eq("user_id",me.id);(data||[]).forEach(r=>{const p=Math.round(r.score/r.total*100);if(best[r.subject]==null||p>best[r.subject])best[r.subject]=p})}
+function menu(){$("#quiz").innerHTML="<h2>اختر اختباراً</h2><div class='grid'>"+Object.keys(DATA.quizzes).map(k=>`<div class="card"><b>${esc(k)}</b><div class="tag">${DATA.quizzes[k].length} أسئلة${best[k]!=null?" · أفضل نتيجة: "+best[k]+"%":""}</div><br><button class="btn" data-s="${esc(k)}">ابدأ</button></div>`).join("")+"</div>"}
+function ask(){const qs=DATA.quizzes[cur],q=qs[i];locked=false;$("#quiz").innerHTML=`<div class="card"><div class="bar"><i style="width:${i/qs.length*100}%"></i></div><div class="tag">سؤال ${i+1} من ${qs.length} · ${esc(cur)}</div><h3>${esc(q.q)}</h3>${q.o.map((o,n)=>`<button class="opt" data-n="${n}">${esc(o)}</button>`).join("")}<div id="fb"></div></div>`}
+function pick(n){if(locked)return;locked=true;const q=DATA.quizzes[cur][i];document.querySelectorAll(".opt").forEach((b,k)=>{if(k===q.a)b.classList.add("right");else if(k===n)b.classList.add("wrong")});if(n===q.a)score++;const last=i===DATA.quizzes[cur].length-1;$("#fb").innerHTML=`<p>${n===q.a?"✅ إجابة صحيحة!":"❌ إجابة خاطئة."} ${esc(q.e)}</p><button class="btn" id="nx">${last?"عرض النتيجة":"التالي"}</button>`}
+async function done(){const t=DATA.quizzes[cur].length,p=Math.round(score/t*100);
+ $("#quiz").innerHTML=`<div class="card" style="text-align:center"><div class="score">${p}%</div><p>أجبت صح على ${score} من ${t} ${p>=80?"🎉 ممتاز!":p>=50?"👍 جيد":"💪 راجع الدرس وحاول مرة ثانية"}</p><div class="tag" id="sv">جاري حفظ النتيجة...</div><button class="btn" data-s="${esc(cur)}">إعادة الاختبار</button> <button class="btn" id="bk">القائمة</button></div>`;
+ const {error}=await sb.from("results").insert({subject:cur,score,total:t});
+ $("#sv").textContent=error?"تعذّر حفظ النتيجة":"تم حفظ النتيجة ✔";if(!error&&(best[cur]==null||p>best[cur]))best[cur]=p}
+$("#quiz").onclick=e=>{const t=e.target;
+ if(t.dataset.s){cur=t.dataset.s;i=0;score=0;ask()}
+ else if(t.classList.contains("opt"))pick(+t.dataset.n);
+ else if(t.id==="nx"){i++;i<DATA.quizzes[cur].length?ask():done()}
+ else if(t.id==="bk")menu()};
+
+/* لوحة المدرّس */
+async function dash(){$("#dash").innerHTML="<h2>نتائج الطلبة</h2><p class='tag'>جاري التحميل...</p>";
+ const {data:rs,error}=await sb.from("results").select("user_id,subject,score,total,created_at").order("created_at",{ascending:false}).limit(300);
+ const {data:ps}=await sb.from("profiles").select("id,name");
+ if(error){$("#dash").innerHTML="<h2>نتائج الطلبة</h2><p>تعذّر التحميل</p>";return}
+ const nm={};(ps||[]).forEach(p=>nm[p.id]=p.name);
+ $("#dash").innerHTML=`<h2>نتائج الطلبة</h2><div class="card scroll"><table><tr><th>الطالب</th><th>المادة</th><th>النتيجة</th><th>التاريخ</th></tr>${(rs||[]).map(r=>`<tr><td>${esc(nm[r.user_id]||"-")}</td><td>${esc(r.subject)}</td><td>${Math.round(r.score/r.total*100)}%</td><td>${new Date(r.created_at).toLocaleDateString("ar-EG")}</td></tr>`).join("")||"<tr><td colspan=4>لا توجد نتائج بعد</td></tr>"}</table></div>`}
+
+/* الحسابات */
+async function enter(user){me=user;
+ const {data:p}=await sb.from("profiles").select("name,role").eq("id",user.id).maybeSingle();
+ isTeacher=p?.role==="teacher";await loadBest();
+ $("#login").style.display="none";$("#ub").innerHTML=`أهلاً يا ${esc(p?.name||"طالب")} 👋 <button class="chip" id="out">خروج</button>`;
+ buildNav();menu();show("lessons")}
+async function auth(isNew){const m=$("#msg"),email=$("#em").value.trim(),password=$("#pw").value,name=$("#nm").value.trim();m.textContent="";
+ if(!email||password.length<6){m.textContent="اكتب بريداً صحيحاً وكلمة سر 6 أحرف على الأقل";return}
+ if(isNew){if(!name){m.textContent="اكتب اسمك";return}
+  const {data,error}=await sb.auth.signUp({email,password,options:{data:{name}}});
+  if(error){m.textContent=error.message;return}
+  if(data.session)enter(data.user);else m.textContent="تم إنشاء الحساب، افتح بريدك لتأكيده ثم سجّل دخول"}
+ else{const {data,error}=await sb.auth.signInWithPassword({email,password});
+  if(error){m.textContent="البريد أو كلمة السر غير صحيحة";return}enter(data.user)}}
+$("#lg").onclick=()=>auth(false);$("#rg").onclick=()=>auth(true);
+$("#pw").onkeydown=e=>{if(e.key==="Enter")auth(false)};
+$("#ub").onclick=async e=>{if(e.target.id==="out"){await sb.auth.signOut();location.reload()}};
+sb.auth.getSession().then(({data})=>{if(data.session)enter(data.session.user)});
+</script>
+</body>
+</html>
